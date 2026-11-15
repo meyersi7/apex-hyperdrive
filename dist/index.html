@@ -92,6 +92,7 @@ button{font-family:Orbitron,Rajdhani,sans-serif;cursor:pointer;border:none;color
 .selRow .seg{flex:1;margin-top:0}
 .selRow .seg button{font-size:10px;padding:8px 1px}
 @media (max-height:700px){#diffInfo{display:none}}
+#fps{display:none;position:fixed;left:50%;bottom:3px;transform:translateX(-50%);z-index:60;pointer-events:none;font:600 11px/1.3 Rajdhani,sans-serif;letter-spacing:.04em;color:#cfe3ff;background:rgba(0,0,0,.55);padding:1px 8px;border-radius:6px;white-space:nowrap}
 #dragHint{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);font-size:12px;color:var(--dim);letter-spacing:.2em;pointer-events:none}
 
 /* ---------- HUD ---------- */
@@ -313,6 +314,7 @@ tr.pre td:nth-child(2)::after{content:" ★";color:var(--gold)}
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="fps"></div>
 <div id="loading"><div class="logo shine">APEX HYPERDRIVE 3D</div><div id="loadTxt">LADE 3D-ENGINE …</div></div>
 <div id="flash"></div>
 
@@ -459,6 +461,7 @@ tr.pre td:nth-child(2)::after{content:" ★";color:var(--gold)}
     <span><b>S1 S2 S3</b></span><span>Abschnitte der Runde: violett = dein schnellster bisher, grün = schneller als letzte Runde, gelb = langsamer</span>
     <span><kbd>P</kbd> / <kbd>Esc</kbd></span><span>Pause</span>
     <span><kbd>M</kbd></span><span>Ton an/aus</span>
+    <span><kbd>F</kbd></span><span>Bildrate anzeigen (Bilder pro Sekunde, Anteil ruckeliger Bilder, Qualitätsstufe)</span>
   </div>
   <div class="note">🏎️ Realistische Fahrphysik: vor Kurven rechtzeitig bremsen, sanft einlenken und erst am Kurvenausgang wieder voll Gas geben. Wer zu schnell einlenkt, rutscht – Reifenspuren und Quietschen zeigen das Limit. Dicht hinter einem Gegner hilft der Windschatten beim Überholen.<br>⏱ Countdown-Endlos: Die Uhr läuft ab, jeder Checkpoint gibt etwas weniger Zeit dazu. Der Boxenfunk kündigt Wetterwechsel mit Wahrscheinlichkeit an. In die Boxengasse fahren, dann mit den Tasten 1–4 (oder Antippen) den Reifen wählen – je schneller die Wahl, desto kürzer der Stopp. Extra-Zeit gibt es für Sprünge, Drifts, Überholen, knappes Vorbeifahren an Hindernissen und Blitz-Stopps (Wahl unter 1 Sekunde).<br>🌀 Driften: Drift-Taste halten und einlenken – das Heck bricht aus, mit Lenken bestimmst du den Driftwinkel, mit Gas hältst du das Tempo. Taste loslassen, und das Auto fängt sich wieder. Für Drifts gibt es Bonuspunkte.<br>📱 Auf Smartphones &amp; Tablets erscheinen automatisch Touch-Buttons für Links, Rechts, DRIFT, NITRO, BRK und GAS.<br>🔧 Boxengasse: rechts neben der Start-/Zielgeraden (Meter 25–245) – einfach durchfahren, das Auto wird während der Fahrt auf 100 % repariert (Pit-Limiter 180 km/h).<br>🪙 Boost Coins: +25 % Nitro und +250 Punkte. Sprungrampen geben Airtime-Bonus.</div>
   <div class="row"><button class="btn" id="keysClose">SCHLIESSEN</button></div>
@@ -501,7 +504,14 @@ const LOW = IS_TOUCH || Math.min(screen.width, screen.height) < 700;
 // ============================================================
 const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LOW ? 1.25 : 1.75));
+// render resolution: capped at about 2.4 megapixels (1.6 on phones). On a 2560×1440 laptop screen that is ~80 % per axis,
+// hardly visible, but it saves a third of the pixel work for shadows, bloom and anti-aliasing. Quality levels 2 and 3 go lower.
+const PX_MAX = LOW ? 1.6e6 : 2.4e6, DPR_STEP = [1, 1, 0.85, 0.7];
+function gfxDpr() {
+  const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  const base = Math.min(window.devicePixelRatio || 1, LOW ? 1.25 : 1.75, Math.sqrt(PX_MAX / (w * h)));
+  return Math.max(0.5, base * DPR_STEP[Math.min(GFX.level, 3)]);
+}
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -516,7 +526,9 @@ const ENV_TEX = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 6000);
 
 // post-processing (bloom) with an automatic quality fallback for slow devices
-const GFX = { level: LOW ? 1 : 0, lock: false, slow: 0, baseDpr: renderer.getPixelRatio() };
+// level 0: bloom, 1: no bloom, 2 and 3: lower resolution (DPR_STEP). Levels only go down, never back up, so the picture does not pump.
+const GFX = { level: LOW ? 1 : 0, lock: false, vs: 1 / 60, vsMin: 1, n: 0, late: 0, winT: 0, hold: 3, fpsN: 0, fpsT: 0, fps: 0, lateP: 0 };
+renderer.setPixelRatio(gfxDpr());
 let composer = null, renderPass = null;
 function initComposer() {
   try {
@@ -536,13 +548,36 @@ function renderScene(scene) {
   renderer.render(scene, camera);
 }
 function resizeGfx() {
+  renderer.setPixelRatio(gfxDpr());
   renderer.setSize(window.innerWidth, window.innerHeight);
   if (composer) { const sz = renderer.getDrawingBufferSize(new THREE.Vector2()); composer.setSize(sz.x, sz.y); }
 }
-function adaptQuality(dt) {
-  if (GFX.lock || GFX.level >= 3) return;
-  GFX.slow = dt > 1 / 36 ? GFX.slow + Math.min(dt, 0.1) : Math.max(0, GFX.slow - dt * 2);
-  if (GFX.slow > 2.5) { GFX.slow = 0; GFX.level++; if (GFX.level === 2) renderer.setPixelRatio(Math.min(GFX.baseDpr, 1)); if (GFX.level === 3) renderer.setPixelRatio(0.75); resizeGfx(); }
+// Counts frames that missed the screen's refresh. On a 60 Hz screen even 45–55 fps judders (frames alternate between
+// 17 and 33 ms), so the old rule "below 36 fps for 2.5 s" came too late. Now: more than 8 % late frames within 3 s → one level down.
+// raw: real frame time in seconds
+function adaptQuality(raw) {
+  if (raw <= 0 || raw > 0.25) return;            // tab switch or pause: no information
+  GFX.vsMin = Math.min(GFX.vsMin, raw);
+  GFX.n++; GFX.winT += raw;
+  // late: clearly longer than one refresh of the screen; at least 20 ms, so 60 fps on a 120/144 Hz screen counts as smooth
+  if (raw > Math.max(1 / 50, GFX.vs * 1.6)) GFX.late++;
+  if (GFX.winT < 3) return;
+  // refresh interval of the screen: the shortest frame seen so far. Only goes down, so a game stuck at 30 fps does not pass for a 30 Hz screen.
+  if (GFX.vsMin > 0.004) GFX.vs = Math.min(GFX.vs, GFX.vsMin);
+  const frac = GFX.late / GFX.n;
+  GFX.n = GFX.late = 0; GFX.winT = 0; GFX.vsMin = 1;
+  if (GFX.hold > 0) { GFX.hold--; return; }       // first windows after start or a change: shaders compile, ignore
+  if (GFX.lock || GFX.level >= 3 || frac <= 0.08) return;
+  GFX.level++; GFX.hold = 1; resizeGfx();
+}
+// frame counter for the FPS display (key F); counts every frame, also in a paused race
+function countFps(raw) {
+  GFX.fpsN++; GFX.fpsT += raw;
+  if (raw > Math.max(1 / 50, GFX.vs * 1.6) && raw < 0.25) GFX.fpsLate = (GFX.fpsLate || 0) + 1;
+  if (GFX.fpsT < 0.5) return false;
+  GFX.fps = Math.round(GFX.fpsN / GFX.fpsT); GFX.lateP = Math.round(100 * (GFX.fpsLate || 0) / GFX.fpsN);
+  GFX.fpsN = 0; GFX.fpsT = 0; GFX.fpsLate = 0;
+  return true;
 }
 
 // ============================================================
@@ -1746,6 +1781,7 @@ function disposeScene(scene) {
 function disposeRace() { endlessCleanup(); if (!race) return; disposeScene(race.scene); if (race.world.envRT) race.world.envRT.dispose(); race = null; }
 function startRace(carIdx, trackIdx) {
   disposeRace();
+  GFX.hold = Math.max(GFX.hold, 1); GFX.n = GFX.late = 0; GFX.winT = 0;   // new scene: shaders compile in the first seconds, those hitches do not count
   for (const k in GEO_CACHE) GEO_CACHE[k].userData.keep = true;
   const def = TRACKS[trackIdx];
   const td = TD_CACHE[def.id] || (TD_CACHE[def.id] = makeTrackData(def));
@@ -3248,6 +3284,7 @@ const KEYMAP = { KeyX: 'drift', Enter: 'drift', KeyW: 'gas', ArrowUp: 'gas', Key
 addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') { if (e.key === 'Enter') saveScore(); return; }
   Sfx.init();
+  if (e.code === 'KeyF') toggleFps();
   if (mode === 'intro') { if (['Enter', 'Space', 'Escape'].includes(e.code)) endIntro(); return; }
   if (mode === 'menu') {
     if (document.querySelector('.modal.on')) { if (e.code === 'Escape') closeAllModals(); return; }
@@ -3314,6 +3351,19 @@ addEventListener('resize', () => {
   if (race) { race.fx.setScale(innerHeight, camera.fov); race.smoke.setScale(innerHeight, camera.fov); }
 });
 
+// FPS display (key F): frames per second, share of late frames, quality level, render resolution. Written twice per second.
+const FPS = { on: false };
+try { FPS.on = localStorage.getItem('apex_fps') === '1'; } catch (_) {}
+function drawFps() {
+  const sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+  setT('fps', `${GFX.fps} FPS · ${GFX.lateP} % ruckelig · Stufe ${GFX.level}/3 · ${sz.x}×${sz.y}`);
+}
+function toggleFps() {
+  FPS.on = !FPS.on; $('fps').style.display = FPS.on ? 'block' : 'none'; if (FPS.on) { hudC.fps = null; drawFps(); }
+  try { localStorage.setItem('apex_fps', FPS.on ? '1' : '0'); } catch (_) {}
+}
+$('fps').style.display = FPS.on ? 'block' : 'none';
+
 // ============================================================
 //  MAIN LOOP
 // ============================================================
@@ -3325,6 +3375,7 @@ function frame(now) {
   if (raw < 0.25) GFX.ft = lerp(GFX.ft || 1 / 60, raw, 0.06);   // smoothed frame time: rain effects scale with it
   dtAvg = raw > 0.2 ? dtAvg : lerp(dtAvg, Math.min(0.05, raw), 0.2);   // evened-out frame time: uneven frames no longer make the picture judder
   const dt = clamp(Math.min(0.05, raw), dtAvg * 0.8, dtAvg * 1.25);
+  if (countFps(raw) && FPS.on) drawFps();
   try {
     if (mode === 'intro' || mode === 'menu') { updateShowroom(dt); renderScene(show.scene); adaptQuality(raw); }
     else if (mode === 'race' && race) { updateRace(dt); renderScene(race.scene); if (race.state !== 'paused') adaptQuality(raw); }
@@ -3343,7 +3394,7 @@ async function boot() {
   lbInitShared();
 
 }
-window.__apex = { gfx: GFX, gfxLock: () => { GFX.lock = true; if (!LOW && GFX.level !== 0) { GFX.level = 0; renderer.setPixelRatio(GFX.baseDpr); resizeGfx(); } }, introSim: (t) => { startIntro(); for (let x = 0; x < t; x += 0.02) updateIntro(0.02); renderScene(show.scene); mode = 'test'; }, introAt: (t) => { mode = 'intro'; intro.t = t - 0.016; intro.cut = t < 2.6 ? 1 : t < 4.8 ? 2 : 3; updateIntro(0.016); renderScene(show.scene); mode = 'test'; }, camera, get show() { return show; }, setMode: (m) => { mode = m; }, shot: (x, y, z, lx, ly, lz, fov = 40) => { camera.position.set(x, y, z); camera.lookAt(lx, ly, lz); camera.fov = fov; camera.updateProjectionMatrix(); renderScene(race ? race.scene : show.scene); }, step: (dt, n) => { for (let i = 0; i < n; i++) updateRace(dt); }, render: () => renderScene(race ? race.scene : show.scene), get race() { return race; }, get mode() { return mode; }, input, startRace, beginRace, toMenu, TRACKS, CARS, set selCar(v) { selCar = v; }, set selDiff(v) { selDiff = v; }, set selMode(v) { selMode = v; }, set selTyre(v) { selTyre = v; }, pitChoose, TYRES, END_CFG, RAINP, LINE, toggleLine, set selTrack(v) { selTrack = v; }, endIntro, explode: () => race && explode(), LB };
+window.__apex = { gfx: GFX, gfxLock: () => { GFX.lock = true; if (!LOW && GFX.level !== 0) { GFX.level = 0; resizeGfx(); } }, introSim: (t) => { startIntro(); for (let x = 0; x < t; x += 0.02) updateIntro(0.02); renderScene(show.scene); mode = 'test'; }, introAt: (t) => { mode = 'intro'; intro.t = t - 0.016; intro.cut = t < 2.6 ? 1 : t < 4.8 ? 2 : 3; updateIntro(0.016); renderScene(show.scene); mode = 'test'; }, camera, get show() { return show; }, setMode: (m) => { mode = m; }, shot: (x, y, z, lx, ly, lz, fov = 40) => { camera.position.set(x, y, z); camera.lookAt(lx, ly, lz); camera.fov = fov; camera.updateProjectionMatrix(); renderScene(race ? race.scene : show.scene); }, step: (dt, n) => { for (let i = 0; i < n; i++) updateRace(dt); }, render: () => renderScene(race ? race.scene : show.scene), get race() { return race; }, get mode() { return mode; }, input, startRace, beginRace, toMenu, TRACKS, CARS, set selCar(v) { selCar = v; }, set selDiff(v) { selDiff = v; }, set selMode(v) { selMode = v; }, set selTyre(v) { selTyre = v; }, pitChoose, TYRES, END_CFG, RAINP, LINE, toggleLine, set selTrack(v) { selTrack = v; }, endIntro, explode: () => race && explode(), LB };
 boot();
 
 </script>

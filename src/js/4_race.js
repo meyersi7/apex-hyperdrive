@@ -41,6 +41,7 @@ function disposeScene(scene) {
 function disposeRace() { endlessCleanup(); if (!race) return; disposeScene(race.scene); if (race.world.envRT) race.world.envRT.dispose(); race = null; }
 function startRace(carIdx, trackIdx) {
   disposeRace();
+  GFX.hold = Math.max(GFX.hold, 1); GFX.n = GFX.late = 0; GFX.winT = 0;   // new scene: shaders compile in the first seconds, those hitches do not count
   for (const k in GEO_CACHE) GEO_CACHE[k].userData.keep = true;
   const def = TRACKS[trackIdx];
   const td = TD_CACHE[def.id] || (TD_CACHE[def.id] = makeTrackData(def));

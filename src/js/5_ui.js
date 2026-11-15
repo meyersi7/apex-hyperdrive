@@ -435,6 +435,7 @@ const KEYMAP = { KeyX: 'drift', Enter: 'drift', KeyW: 'gas', ArrowUp: 'gas', Key
 addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') { if (e.key === 'Enter') saveScore(); return; }
   Sfx.init();
+  if (e.code === 'KeyF') toggleFps();
   if (mode === 'intro') { if (['Enter', 'Space', 'Escape'].includes(e.code)) endIntro(); return; }
   if (mode === 'menu') {
     if (document.querySelector('.modal.on')) { if (e.code === 'Escape') closeAllModals(); return; }
@@ -501,6 +502,19 @@ addEventListener('resize', () => {
   if (race) { race.fx.setScale(innerHeight, camera.fov); race.smoke.setScale(innerHeight, camera.fov); }
 });
 
+// FPS display (key F): frames per second, share of late frames, quality level, render resolution. Written twice per second.
+const FPS = { on: false };
+try { FPS.on = localStorage.getItem('apex_fps') === '1'; } catch (_) {}
+function drawFps() {
+  const sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+  setT('fps', `${GFX.fps} FPS · ${GFX.lateP} % ruckelig · Stufe ${GFX.level}/3 · ${sz.x}×${sz.y}`);
+}
+function toggleFps() {
+  FPS.on = !FPS.on; $('fps').style.display = FPS.on ? 'block' : 'none'; if (FPS.on) { hudC.fps = null; drawFps(); }
+  try { localStorage.setItem('apex_fps', FPS.on ? '1' : '0'); } catch (_) {}
+}
+$('fps').style.display = FPS.on ? 'block' : 'none';
+
 // ============================================================
 //  MAIN LOOP
 // ============================================================
@@ -512,6 +526,7 @@ function frame(now) {
   if (raw < 0.25) GFX.ft = lerp(GFX.ft || 1 / 60, raw, 0.06);   // smoothed frame time: rain effects scale with it
   dtAvg = raw > 0.2 ? dtAvg : lerp(dtAvg, Math.min(0.05, raw), 0.2);   // evened-out frame time: uneven frames no longer make the picture judder
   const dt = clamp(Math.min(0.05, raw), dtAvg * 0.8, dtAvg * 1.25);
+  if (countFps(raw) && FPS.on) drawFps();
   try {
     if (mode === 'intro' || mode === 'menu') { updateShowroom(dt); renderScene(show.scene); adaptQuality(raw); }
     else if (mode === 'race' && race) { updateRace(dt); renderScene(race.scene); if (race.state !== 'paused') adaptQuality(raw); }
@@ -530,5 +545,5 @@ async function boot() {
   lbInitShared();
 
 }
-window.__apex = { gfx: GFX, gfxLock: () => { GFX.lock = true; if (!LOW && GFX.level !== 0) { GFX.level = 0; renderer.setPixelRatio(GFX.baseDpr); resizeGfx(); } }, introSim: (t) => { startIntro(); for (let x = 0; x < t; x += 0.02) updateIntro(0.02); renderScene(show.scene); mode = 'test'; }, introAt: (t) => { mode = 'intro'; intro.t = t - 0.016; intro.cut = t < 2.6 ? 1 : t < 4.8 ? 2 : 3; updateIntro(0.016); renderScene(show.scene); mode = 'test'; }, camera, get show() { return show; }, setMode: (m) => { mode = m; }, shot: (x, y, z, lx, ly, lz, fov = 40) => { camera.position.set(x, y, z); camera.lookAt(lx, ly, lz); camera.fov = fov; camera.updateProjectionMatrix(); renderScene(race ? race.scene : show.scene); }, step: (dt, n) => { for (let i = 0; i < n; i++) updateRace(dt); }, render: () => renderScene(race ? race.scene : show.scene), get race() { return race; }, get mode() { return mode; }, input, startRace, beginRace, toMenu, TRACKS, CARS, set selCar(v) { selCar = v; }, set selDiff(v) { selDiff = v; }, set selMode(v) { selMode = v; }, set selTyre(v) { selTyre = v; }, pitChoose, TYRES, END_CFG, RAINP, LINE, toggleLine, set selTrack(v) { selTrack = v; }, endIntro, explode: () => race && explode(), LB };
+window.__apex = { gfx: GFX, gfxLock: () => { GFX.lock = true; if (!LOW && GFX.level !== 0) { GFX.level = 0; resizeGfx(); } }, introSim: (t) => { startIntro(); for (let x = 0; x < t; x += 0.02) updateIntro(0.02); renderScene(show.scene); mode = 'test'; }, introAt: (t) => { mode = 'intro'; intro.t = t - 0.016; intro.cut = t < 2.6 ? 1 : t < 4.8 ? 2 : 3; updateIntro(0.016); renderScene(show.scene); mode = 'test'; }, camera, get show() { return show; }, setMode: (m) => { mode = m; }, shot: (x, y, z, lx, ly, lz, fov = 40) => { camera.position.set(x, y, z); camera.lookAt(lx, ly, lz); camera.fov = fov; camera.updateProjectionMatrix(); renderScene(race ? race.scene : show.scene); }, step: (dt, n) => { for (let i = 0; i < n; i++) updateRace(dt); }, render: () => renderScene(race ? race.scene : show.scene), get race() { return race; }, get mode() { return mode; }, input, startRace, beginRace, toMenu, TRACKS, CARS, set selCar(v) { selCar = v; }, set selDiff(v) { selDiff = v; }, set selMode(v) { selMode = v; }, set selTyre(v) { selTyre = v; }, pitChoose, TYRES, END_CFG, RAINP, LINE, toggleLine, set selTrack(v) { selTrack = v; }, endIntro, explode: () => race && explode(), LB };
 boot();

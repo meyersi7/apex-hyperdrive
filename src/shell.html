@@ -92,6 +92,7 @@ button{font-family:Orbitron,Rajdhani,sans-serif;cursor:pointer;border:none;color
 .selRow .seg{flex:1;margin-top:0}
 .selRow .seg button{font-size:10px;padding:8px 1px}
 @media (max-height:700px){#diffInfo{display:none}}
+#fps{display:none;position:fixed;left:50%;bottom:3px;transform:translateX(-50%);z-index:60;pointer-events:none;font:600 11px/1.3 Rajdhani,sans-serif;letter-spacing:.04em;color:#cfe3ff;background:rgba(0,0,0,.55);padding:1px 8px;border-radius:6px;white-space:nowrap}
 #dragHint{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);font-size:12px;color:var(--dim);letter-spacing:.2em;pointer-events:none}
 
 /* ---------- HUD ---------- */
@@ -313,6 +314,7 @@ tr.pre td:nth-child(2)::after{content:" ★";color:var(--gold)}
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="fps"></div>
 <div id="loading"><div class="logo shine">APEX HYPERDRIVE 3D</div><div id="loadTxt">LADE 3D-ENGINE …</div></div>
 <div id="flash"></div>
 
@@ -459,6 +461,7 @@ tr.pre td:nth-child(2)::after{content:" ★";color:var(--gold)}
     <span><b>S1 S2 S3</b></span><span>Abschnitte der Runde: violett = dein schnellster bisher, grün = schneller als letzte Runde, gelb = langsamer</span>
     <span><kbd>P</kbd> / <kbd>Esc</kbd></span><span>Pause</span>
     <span><kbd>M</kbd></span><span>Ton an/aus</span>
+    <span><kbd>F</kbd></span><span>Bildrate anzeigen (Bilder pro Sekunde, Anteil ruckeliger Bilder, Qualitätsstufe)</span>
   </div>
   <div class="note">🏎️ Realistische Fahrphysik: vor Kurven rechtzeitig bremsen, sanft einlenken und erst am Kurvenausgang wieder voll Gas geben. Wer zu schnell einlenkt, rutscht – Reifenspuren und Quietschen zeigen das Limit. Dicht hinter einem Gegner hilft der Windschatten beim Überholen.<br>⏱ Countdown-Endlos: Die Uhr läuft ab, jeder Checkpoint gibt etwas weniger Zeit dazu. Der Boxenfunk kündigt Wetterwechsel mit Wahrscheinlichkeit an. In die Boxengasse fahren, dann mit den Tasten 1–4 (oder Antippen) den Reifen wählen – je schneller die Wahl, desto kürzer der Stopp. Extra-Zeit gibt es für Sprünge, Drifts, Überholen, knappes Vorbeifahren an Hindernissen und Blitz-Stopps (Wahl unter 1 Sekunde).<br>🌀 Driften: Drift-Taste halten und einlenken – das Heck bricht aus, mit Lenken bestimmst du den Driftwinkel, mit Gas hältst du das Tempo. Taste loslassen, und das Auto fängt sich wieder. Für Drifts gibt es Bonuspunkte.<br>📱 Auf Smartphones &amp; Tablets erscheinen automatisch Touch-Buttons für Links, Rechts, DRIFT, NITRO, BRK und GAS.<br>🔧 Boxengasse: rechts neben der Start-/Zielgeraden (Meter 25–245) – einfach durchfahren, das Auto wird während der Fahrt auf 100 % repariert (Pit-Limiter 180 km/h).<br>🪙 Boost Coins: +25 % Nitro und +250 Punkte. Sprungrampen geben Airtime-Bonus.</div>
   <div class="row"><button class="btn" id="keysClose">SCHLIESSEN</button></div>

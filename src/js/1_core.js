@@ -33,7 +33,14 @@ const LOW = IS_TOUCH || Math.min(screen.width, screen.height) < 700;
 // ============================================================
 const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, LOW ? 1.25 : 1.75));
+// render resolution: capped at about 2.4 megapixels (1.6 on phones). On a 2560×1440 laptop screen that is ~80 % per axis,
+// hardly visible, but it saves a third of the pixel work for shadows, bloom and anti-aliasing. Quality levels 2 and 3 go lower.
+const PX_MAX = LOW ? 1.6e6 : 2.4e6, DPR_STEP = [1, 1, 0.85, 0.7];
+function gfxDpr() {
+  const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  const base = Math.min(window.devicePixelRatio || 1, LOW ? 1.25 : 1.75, Math.sqrt(PX_MAX / (w * h)));
+  return Math.max(0.5, base * DPR_STEP[Math.min(GFX.level, 3)]);
+}
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -48,7 +55,9 @@ const ENV_TEX = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 6000);
 
 // post-processing (bloom) with an automatic quality fallback for slow devices
-const GFX = { level: LOW ? 1 : 0, lock: false, slow: 0, baseDpr: renderer.getPixelRatio() };
+// level 0: bloom, 1: no bloom, 2 and 3: lower resolution (DPR_STEP). Levels only go down, never back up, so the picture does not pump.
+const GFX = { level: LOW ? 1 : 0, lock: false, vs: 1 / 60, vsMin: 1, n: 0, late: 0, winT: 0, hold: 3, fpsN: 0, fpsT: 0, fps: 0, lateP: 0 };
+renderer.setPixelRatio(gfxDpr());
 let composer = null, renderPass = null;
 function initComposer() {
   try {
@@ -68,13 +77,36 @@ function renderScene(scene) {
   renderer.render(scene, camera);
 }
 function resizeGfx() {
+  renderer.setPixelRatio(gfxDpr());
   renderer.setSize(window.innerWidth, window.innerHeight);
   if (composer) { const sz = renderer.getDrawingBufferSize(new THREE.Vector2()); composer.setSize(sz.x, sz.y); }
 }
-function adaptQuality(dt) {
-  if (GFX.lock || GFX.level >= 3) return;
-  GFX.slow = dt > 1 / 36 ? GFX.slow + Math.min(dt, 0.1) : Math.max(0, GFX.slow - dt * 2);
-  if (GFX.slow > 2.5) { GFX.slow = 0; GFX.level++; if (GFX.level === 2) renderer.setPixelRatio(Math.min(GFX.baseDpr, 1)); if (GFX.level === 3) renderer.setPixelRatio(0.75); resizeGfx(); }
+// Counts frames that missed the screen's refresh. On a 60 Hz screen even 45–55 fps judders (frames alternate between
+// 17 and 33 ms), so the old rule "below 36 fps for 2.5 s" came too late. Now: more than 8 % late frames within 3 s → one level down.
+// raw: real frame time in seconds
+function adaptQuality(raw) {
+  if (raw <= 0 || raw > 0.25) return;            // tab switch or pause: no information
+  GFX.vsMin = Math.min(GFX.vsMin, raw);
+  GFX.n++; GFX.winT += raw;
+  // late: clearly longer than one refresh of the screen; at least 20 ms, so 60 fps on a 120/144 Hz screen counts as smooth
+  if (raw > Math.max(1 / 50, GFX.vs * 1.6)) GFX.late++;
+  if (GFX.winT < 3) return;
+  // refresh interval of the screen: the shortest frame seen so far. Only goes down, so a game stuck at 30 fps does not pass for a 30 Hz screen.
+  if (GFX.vsMin > 0.004) GFX.vs = Math.min(GFX.vs, GFX.vsMin);
+  const frac = GFX.late / GFX.n;
+  GFX.n = GFX.late = 0; GFX.winT = 0; GFX.vsMin = 1;
+  if (GFX.hold > 0) { GFX.hold--; return; }       // first windows after start or a change: shaders compile, ignore
+  if (GFX.lock || GFX.level >= 3 || frac <= 0.08) return;
+  GFX.level++; GFX.hold = 1; resizeGfx();
+}
+// frame counter for the FPS display (key F); counts every frame, also in a paused race
+function countFps(raw) {
+  GFX.fpsN++; GFX.fpsT += raw;
+  if (raw > Math.max(1 / 50, GFX.vs * 1.6) && raw < 0.25) GFX.fpsLate = (GFX.fpsLate || 0) + 1;
+  if (GFX.fpsT < 0.5) return false;
+  GFX.fps = Math.round(GFX.fpsN / GFX.fpsT); GFX.lateP = Math.round(100 * (GFX.fpsLate || 0) / GFX.fpsN);
+  GFX.fpsN = 0; GFX.fpsT = 0; GFX.fpsLate = 0;
+  return true;
 }
 
 // ============================================================
